@@ -23,5 +23,3 @@ class Tile:
 	def miss(self):
 		self.changeChar(MISS)
 		self.hasBeenHit = True
-
-

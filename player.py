@@ -31,9 +31,9 @@ class Player:
 		self.ships : list[Ship] = []
 
 
-	def getShipDataForCreation(self, name):
+	def getShipDataForCreation(self, name, size):
 		while True:
-			orentation = input(f"Enter Orientation for {name} (Up/Right/Down/Left): ").lower().strip()
+			orentation = input(f"Enter Orientation for {name} ({size}) (Up/Right/Down/Left): ").lower().strip()
 			if orentation not in ("up", "right", "down", "left"):
 				print(f"{Fore.BLUE}Invalid orientation! Please use only Up, Right, Down, or Left.")
 				continue
@@ -59,7 +59,7 @@ class Player:
 		for name, size in ships_info:
 			while True:
 				try:
-					orientation, starting_point = self.getShipDataForCreation(name)
+					orientation, starting_point = self.getShipDataForCreation(name, size)
 					ship = Ship(name, size, orientation, starting_point, self.shipBoard, EMPTY, SHIP, Fore)
 					ship.placeShip()
 					self.ships.append(ship)
@@ -78,44 +78,57 @@ class Player:
 
 	def playTurn(self, computer):
 		global ComputerTurn
+		message = ""
 		while True:
-			cellToBeHit = input("Your Turn (e.g., A1): ").upper().strip()
-			if len(cellToBeHit) < 2 or not cellToBeHit[0].isalpha() or not cellToBeHit[1:].isdigit():
-				print(f"{Fore.RED}Invalid input! Please enter a letter followed by a number, e.g., A1.")
+			cellToBeHit = input("Your Turn (e.g., A1, or type 'help'/'quit'): ").upper().strip()
+			if cellToBeHit.lower() == 'help':
+				print(HELPMENUE)
 				continue
+			if cellToBeHit.lower() in ('quit', 'exit'):
+				print("Thanks for playing!")
+				exit()
+			# Enhanced input validation to handle cases like "R5"
+			if (
+				len(cellToBeHit) < 2
+				or not cellToBeHit[0].isalpha()
+				or not cellToBeHit[1:].isdigit()
+				or not ('A' <= cellToBeHit[0] <= 'J')
+			):
+				message = f"{Fore.RED}Invalid input! Please enter a valid cell (A1-J10)."
+				print(message)  # Show error immediately
+				continue       # Ask again, don't end turn
 			row = ord(cellToBeHit[0]) - 65
 			col = int(cellToBeHit[1:]) - 1
 			if row < 0 or row >= 10 or col < 0 or col >= 10:
-				print(f"{Fore.RED}Cell out of bounds! Please enter a valid cell (A1-J10).")
+				message = f"{Fore.RED}Cell out of bounds! Please enter a valid cell (A1-J10)."
+				print(message)
 				continue
 			if self.pegBoard[row][col].hasBeenHit:
-				print(f"{Fore.RED}You have already played that turn. Please choose another cell.")
+				message = f"{Fore.RED}You have already played that turn. Please choose another cell."
+				print(message)
 				continue
 			if computer.shipBoard[row][col].doesContainShip:
 				self.pegBoard[row][col].hit()
 				shipThatWasDestroyed = computer.shipBoard[row][col].hit()
 				computer.shipBoard[row][col].changeChar(SHIPDAMAGED)
-				print(f"{Fore.YELLOW}{cellToBeHit} was a HIT!")
+				message = f"{Fore.YELLOW}{cellToBeHit} was a HIT!"
 				if shipThatWasDestroyed:
-					print(f"{Fore.LIGHTBLUE_EX}YOU DESTROYED {shipThatWasDestroyed.name} !!!")
+					message += f"\n{Fore.LIGHTBLUE_EX}YOU DESTROYED {shipThatWasDestroyed.name} !!!"
 					computer.ships.remove(shipThatWasDestroyed)
-
-
 				ComputerTurn = True
-
 			else:
 				self.pegBoard[row][col].miss()
-				print(f"{Fore.YELLOW}{cellToBeHit} was a MISS!")
-
+				message = f"{Fore.YELLOW}{cellToBeHit} was a MISS!"
 				ComputerTurn = True
-			
-			return False
+			return False, message
 
 class Computer(Player):
 	def __init__(self, player):
 		super().__init__()
 		self.prevHits = []  # List of (row, col) tuples where hits have occurred but ship not yet sunk
+		self.ship_hits = {}  # Maps ship objects to list of hit positions - IMPROVED
 		self.player = player
+		self.parity_mode = True  # Use checkerboard pattern for better efficiency - IMPROVED
 
 	def getShipDataForCreationByComputer(self, size):
 		# Try to find a valid random placement for the ship
@@ -179,7 +192,7 @@ class Computer(Player):
 		return "yes"
 
 	def get_adjacent_cells(self, row, col):
-		# Returns list of valid adjacent (row, col) tuples
+		"""Returns list of valid adjacent (row, col) tuples"""
 		directions = [(-1,0), (1,0), (0,-1), (0,1)]
 		adj = []
 		for dr, dc in directions:
@@ -188,58 +201,119 @@ class Computer(Player):
 				adj.append((r, c))
 		return adj
 
+	def _group_connected_hits(self):
+		"""Group hits that are likely part of the same ship - IMPROVED"""
+		if not self.prevHits:
+			return []
+		
+		groups = []
+		processed = set()
+		
+		for hit in self.prevHits:
+			if hit in processed:
+				continue
+				
+			# Start a new group with this hit
+			group = [hit]
+			stack = [hit]
+			processed.add(hit)
+			
+			while stack:
+				current = stack.pop()
+				# Check all adjacent cells
+				for adj in self.get_adjacent_cells(current[0], current[1]):
+					if adj in self.prevHits and adj not in processed:
+						group.append(adj)
+						stack.append(adj)
+						processed.add(adj)
+			
+			groups.append(group)
+		
+		return groups
+
+	def _find_best_target_for_group(self, group):
+		"""Find the best target for a group of connected hits - IMPROVED"""
+		if len(group) == 1:
+			# Single hit - try all adjacent cells
+			adj = self.get_adjacent_cells(group[0][0], group[0][1])
+			return random.choice(adj) if adj else None
+		
+		# Multiple hits - determine if they're aligned and extend the line
+		rows = [r for r, c in group]
+		cols = [c for r, c in group]
+		
+		if all(r == rows[0] for r in rows):  # Horizontal alignment
+			row = rows[0]
+			min_c, max_c = min(cols), max(cols)
+			
+			# Try to extend left
+			if min_c - 1 >= 0 and not self.pegBoard[row][min_c - 1].hasBeenHit:
+				return (row, min_c - 1)
+			# Try to extend right
+			if max_c + 1 < 10 and not self.pegBoard[row][max_c + 1].hasBeenHit:
+				return (row, max_c + 1)
+				
+		elif all(c == cols[0] for c in cols):  # Vertical alignment
+			col = cols[0]
+			min_r, max_r = min(rows), max(rows)
+			
+			# Try to extend up
+			if min_r - 1 >= 0 and not self.pegBoard[min_r - 1][col].hasBeenHit:
+				return (min_r - 1, col)
+			# Try to extend down
+			if max_r + 1 < 10 and not self.pegBoard[max_r + 1][col].hasBeenHit:
+				return (max_r + 1, col)
+		
+		# If can't extend, try adjacent cells to any hit in the group
+		for hit in group:
+			adj = self.get_adjacent_cells(hit[0], hit[1])
+			if adj:
+				return random.choice(adj)
+		
+		return None
+
 	def find_best_target(self):
+		"""Enhanced targeting algorithm with better ship tracking - IMPROVED"""
 		# If there are previous hits, try to finish the ship by targeting adjacent cells
 		if self.prevHits:
-			# Try to extend in a line if more than one hit in a row/col
-			if len(self.prevHits) > 1:
-				# Check if hits are aligned horizontally or vertically
-				rows = [r for r, c in self.prevHits]
-				cols = [c for r, c in self.prevHits]
-				if all(r == rows[0] for r in rows):  # Horizontal
-					min_c, max_c = min(cols), max(cols)
-					row = rows[0]
-					# Try to extend left
-					if min_c - 1 >= 0 and not self.pegBoard[row][min_c - 1].hasBeenHit:
-						return (row, min_c - 1)
-					# Try to extend right
-					if max_c + 1 < 10 and not self.pegBoard[row][max_c + 1].hasBeenHit:
-						return (row, max_c + 1)
-				elif all(c == cols[0] for c in cols):  # Vertical
-					min_r, max_r = min(rows), max(rows)
-					col = cols[0]
-					# Try to extend up
-					if min_r - 1 >= 0 and not self.pegBoard[min_r - 1][col].hasBeenHit:
-						return (min_r - 1, col)
-					# Try to extend down
-					if max_r + 1 < 10 and not self.pegBoard[max_r + 1][col].hasBeenHit:
-						return (max_r + 1, col)
-			# Otherwise, pick any adjacent cell to a hit
-			random.shuffle(self.prevHits)
-			for r, c in self.prevHits:
-				adj = self.get_adjacent_cells(r, c)
-				if adj:
-					return random.choice(adj)
-		# If no hits to follow up, use probability map
+			# Group hits by potential ships (connected hits)
+			hit_groups = self._group_connected_hits()
+			
+			for group in hit_groups:
+				target = self._find_best_target_for_group(group)
+				if target:
+					return target
+		
+		# If no hits to follow up, use improved probability map
 		return self.highest_probability_cell()
 
 	def highest_probability_cell(self):
-		# Build a probability map for all remaining ships
+		"""Build improved probability map with parity optimization - IMPROVED"""
 		probability = [[0 for _ in range(10)] for _ in range(10)]
 		remaining_ship_sizes = [ship.getShipSize() for ship in self.player.ships if not ship.isDestroyed]
+		
 		for ship_size in remaining_ship_sizes:
-			# Horizontal
+			# Horizontal placements
 			for i in range(10):
 				for j in range(11 - ship_size):
 					if all(not self.pegBoard[i][j + k].hasBeenHit for k in range(ship_size)):
 						for k in range(ship_size):
 							probability[i][j + k] += 1
-			# Vertical
+			
+			# Vertical placements
 			for i in range(11 - ship_size):
 				for j in range(10):
 					if all(not self.pegBoard[i + k][j].hasBeenHit for k in range(ship_size)):
 						for k in range(ship_size):
 							probability[i + k][j] += 1
+
+		# Apply parity bonus for checkerboard pattern (more efficient ship hunting) - IMPROVED
+		if self.parity_mode and not self.prevHits:
+			for i in range(10):
+				for j in range(10):
+					if (i + j) % 2 == 0:  # Checkerboard pattern
+						probability[i][j] = int(probability[i][j] * 1.5)
+
 		# Find the cell with the highest probability
 		max_prob = -1
 		candidates = []
@@ -251,33 +325,59 @@ class Computer(Player):
 						candidates = [(i, j)]
 					elif probability[i][j] == max_prob:
 						candidates.append((i, j))
+		
 		return random.choice(candidates) if candidates else (random.randint(0, 9), random.randint(0, 9))
 
 	def ComputerPlayTurn(self, cell):
+		"""Execute the computer's turn with improved hit tracking - IMPROVED"""
 		r, c = cell
 		if self.player.shipBoard[r][c].doesContainShip:
 			self.pegBoard[r][c].hit()
 			shipThatWasDestroyed = self.player.shipBoard[r][c].hit()
 			self.player.shipBoard[r][c].changeChar(SHIPDAMAGED)
+			
+			# Track this hit properly - IMPROVED
+			ship = self.player.shipBoard[r][c].doesContainShip
+			if ship not in self.ship_hits:
+				self.ship_hits[ship] = []
+			self.ship_hits[ship].append((r, c))
+			
 			return True, shipThatWasDestroyed
 		else:
 			self.pegBoard[r][c].miss()
 			return False, None
 
 	def playTurn(self, computer=None):
+		"""Improved main play turn method with better state management - IMPROVED"""
 		global ComputerTurn
+		message = ""
 		cell = self.find_best_target()
 		hit, shipThatWasDestroyed = self.ComputerPlayTurn(cell)
 		cell_str = f"{chr(cell[0] + 65)}{cell[1] + 1}"
+		
 		if hit:
-			print(f"{Fore.YELLOW}COMPUTER PLAYED {cell_str} and it is a HIT!")
+			message = f"{Fore.YELLOW}COMPUTER PLAYED {cell_str} and it is a HIT!"
 			if cell not in self.prevHits:
 				self.prevHits.append(cell)
+			
 			if shipThatWasDestroyed:
-				print(f"{Fore.LIGHTBLUE_EX}YOUR {shipThatWasDestroyed.name} WAS DESTROYED !!!")
+				message += f"\n{Fore.LIGHTBLUE_EX}YOUR {shipThatWasDestroyed.name} WAS DESTROYED !!!"
 				self.player.ships.remove(shipThatWasDestroyed)
-				# Remove all hit cells for this ship from prevHits
-				self.prevHits = [pos for pos in self.prevHits if self.player.shipBoard[pos[0]][pos[1]].doesContainShip != shipThatWasDestroyed]
+				
+				# Properly clean up hits for destroyed ship - FIXED BUG
+				if shipThatWasDestroyed in self.ship_hits:
+					destroyed_hits = self.ship_hits[shipThatWasDestroyed]
+					self.prevHits = [pos for pos in self.prevHits if pos not in destroyed_hits]
+					del self.ship_hits[shipThatWasDestroyed]
+				
+				# Switch back to parity mode if no more hits to follow - IMPROVED
+				if not self.prevHits:
+					self.parity_mode = True
+			else:
+				# We have a hit but ship not destroyed - switch off parity mode - IMPROVED
+				self.parity_mode = False
 		else:
-			print(f"{Fore.YELLOW}COMPUTER PLAYED {cell_str} and it is a MISS!")
+			message = f"{Fore.YELLOW}COMPUTER PLAYED {cell_str} and it is a MISS!"
+		
 		ComputerTurn = False
+		return message

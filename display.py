@@ -78,6 +78,5 @@ def display_game(player, computer):
 	displayPlayesShipBoard(player)
 	print(f"{Back.WHITE}{Fore.WHITE}─"*120)
 	print()
-
-
-
+	print(f"{Fore.WHITE}Legend: {Fore.WHITE}██ = Ship  {Fore.RED}🞮 = Hit  {Fore.BLUE}🞅 = Miss  {Fore.YELLOW}⦿ = Sunk Ship")
+	print()

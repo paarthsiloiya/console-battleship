@@ -10,7 +10,8 @@ ComputerTurn = False
 
 print(INTRO)
 print(HELPMENUE)
-print("█"*200, end="\n\n\n")
+print("█"*200, end="\n\n")
+input("Press Enter to start the game...")
 
 player = Player()
 computer = Computer(player)
@@ -34,13 +35,23 @@ def checkWin():
 
 	return False
 
+turn_number = 1
+
 def PlayGame():
-	turnConfirmation = True
-	while turnConfirmation:
-		turnConfirmation = player.playTurn(computer)
-	display_game(player, computer)
-	computer.playTurn()
-	return checkWin()
+    global turn_number
+    print(f"{Fore.CYAN}Turn {turn_number}: {'Player' if not ComputerTurn else 'Computer'}'s move")
+    turnConfirmation = True
+    player_message = ""
+    while turnConfirmation:
+        turnConfirmation, player_message = player.playTurn(computer)
+    computer_message = computer.playTurn()
+    display_game(player, computer)
+    if player_message:
+        print(player_message)
+    if computer_message:
+        print(computer_message)
+    turn_number += 1
+    return checkWin()
 
 def startGame():
 	computer.createShip()
