@@ -60,13 +60,13 @@ class Player:
 			while True:
 				try:
 					orientation, starting_point = self.getShipDataForCreation(name, size)
-					ship = Ship(name, size, orientation, starting_point, self.shipBoard, EMPTY, SHIP, Fore)
+					ship = Ship(name, size, orientation, starting_point, self.shipBoard, EMPTY, SHIP)
 					ship.placeShip()
 					self.ships.append(ship)
 					display_game(self, computer)
 					break
 				except TypeError as te:
-					print(f"{Fore.RED}Ship placement error: {te}")
+					print(f"{Fore.RED}Ship placement error: Another Ship Already Placed on {te}")
 				except Exception as e:
 					print(f"{Fore.RED}Error: {e}")
 		while True:
@@ -77,7 +77,6 @@ class Player:
 				print(f"{Fore.BLUE}Please enter 'Yes' to lock the board or 'No' to clear and restart ship placement.")
 
 	def playTurn(self, computer):
-		global ComputerTurn
 		message = ""
 		while True:
 			cellToBeHit = input("Your Turn (e.g., A1, or type 'help'/'quit'): ").upper().strip()
@@ -115,11 +114,9 @@ class Player:
 				if shipThatWasDestroyed:
 					message += f"\n{Fore.LIGHTBLUE_EX}YOU DESTROYED {shipThatWasDestroyed.name} !!!"
 					computer.ships.remove(shipThatWasDestroyed)
-				ComputerTurn = True
 			else:
 				self.pegBoard[row][col].miss()
 				message = f"{Fore.YELLOW}{cellToBeHit} was a MISS!"
-				ComputerTurn = True
 			return False, message
 
 class Computer(Player):
@@ -169,8 +166,6 @@ class Computer(Player):
 			return False
 
 	def createShip(self, computer=None):
-		global ComputerTurn
-		ComputerTurn = True
 		ships_info = [
 			("Carrier", 5),
 			("Battelship", 4),
@@ -182,13 +177,12 @@ class Computer(Player):
 			while True:
 				try:
 					orientation, starting_point = self.getShipDataForCreationByComputer(size)
-					ship = Ship(name, size, orientation, starting_point, self.shipBoard, EMPTY, SHIP, Fore)
+					ship = Ship(name, size, orientation, starting_point, self.shipBoard, EMPTY, SHIP)
 					ship.placeShip()
 					self.ships.append(ship)
 					break
 				except Exception:
 					pass
-		ComputerTurn = False
 		return "yes"
 
 	def get_adjacent_cells(self, row, col):
@@ -349,7 +343,6 @@ class Computer(Player):
 
 	def playTurn(self, computer=None):
 		"""Improved main play turn method with better state management - IMPROVED"""
-		global ComputerTurn
 		message = ""
 		cell = self.find_best_target()
 		hit, shipThatWasDestroyed = self.ComputerPlayTurn(cell)
@@ -379,5 +372,4 @@ class Computer(Player):
 		else:
 			message = f"{Fore.YELLOW}COMPUTER PLAYED {cell_str} and it is a MISS!"
 		
-		ComputerTurn = False
 		return message
